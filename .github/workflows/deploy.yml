@@ -125,14 +125,21 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           NEW_IMAGE: "${{ env.REGISTRY_IMAGE }}:sha-${{ github.sha }}"
+          DH_USER: "${{ secrets.DOCKERHUB_USERNAME }}"
+          DH_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER || 'ec2-user' }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          envs: NEW_IMAGE
+          envs: NEW_IMAGE,DH_USER,DH_TOKEN
           script: |
             set -euo pipefail
             echo "==> Deploying image: ${NEW_IMAGE}"
+
+            # Log in to Docker Hub if credentials are provided
+            if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+              echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+            fi
 
             # Capture existing running image tag for rollback
             PREVIOUS_IMAGE=$(docker inspect --format='{{.Config.Image}}' devops-task-app 2>/dev/null || echo "")
