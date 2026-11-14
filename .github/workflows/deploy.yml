@@ -26,7 +26,7 @@ jobs:
 
     outputs:
       short_sha: ${{ steps.slug.outputs.short_sha }}
-      image_name: ${{ env.REGISTRY_IMAGE }}
+      image_name: ${{ steps.slug.outputs.image_name }}
 
     steps:
       - name: Checkout Source Code
@@ -36,7 +36,9 @@ jobs:
 
       - name: Compute Short SHA
         id: slug
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "image_name=${REGISTRY_IMAGE}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU (Multi-Architecture)
         uses: docker/setup-qemu-action@v3
