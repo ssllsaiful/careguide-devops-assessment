@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+# Update packages and install Docker
+echo "==> Updating packages and installing Docker..."
+dnf update -y
+dnf install -y docker
+
+# Start and enable Docker daemon
+systemctl enable docker
+systemctl start docker
+
+# Add ec2-user to docker group
+usermod -aG docker ec2-user
+
+# Pull and launch the application container with CloudWatch logs driver
+echo "==> Pulling and starting container: ${docker_image}..."
+docker run -d \
+  --name devops-task-app \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  --log-driver=awslogs \
+  --log-opt awslogs-region=${aws_region} \
+  --log-opt awslogs-group=${log_group_name} \
+  --log-opt awslogs-stream=${environment}-instance \
+  --log-opt awslogs-create-group=true \
+  -e PORT=8080 \
+  -e ENVIRONMENT=${environment} \
+  -e LOG_LEVEL=${log_level} \
+  -e APP_VERSION=1.0.0 \
+  ${docker_image}
+
+echo "==> Container started. Verifying health probe..."
+sleep 5
+curl -f http://127.0.0.1:8080/health || echo "Health check warming up..."

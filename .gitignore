@@ -52,6 +52,9 @@ htmlcov/
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
+*.pem
+*.key
+careguide-key.pem
 
 # IDEs & OS
 .idea/
