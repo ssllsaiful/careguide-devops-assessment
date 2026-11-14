@@ -1,0 +1,36 @@
+# Version control
+.git
+.gitignore
+
+# Python cache & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Assessment assets & documentation
+*.pdf
+*.md
+LICENSE
+
+
+# Infrastructure and configuration directories not needed inside container
+terraform/
+k8s/
+monitoring/
+scripts/
+.github/
+docker-compose*.yml
+
+# IDE & Editor artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
