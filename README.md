@@ -289,13 +289,15 @@ docker compose -f monitoring/docker-compose.monitoring.yml ps
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
-| Grafana | http://localhost:3000 | admin / admin |
+| Grafana | http://localhost:3000 | admin / Saiful@1234 |
+| Grafana Dashboard | http://localhost:3000/d/devops-task-overview/devops-task-service-overview | admin / Saiful@1234 |
 | Prometheus | http://localhost:9090 | — |
 | Loki | http://localhost:3100 | — |
 | Grafana Alloy | http://localhost:12345 | — |
 | Node Exporter | http://localhost:9100 | — |
 | cAdvisor | http://localhost:8081 | — |
-| App | http://localhost:8080 | — |
+| App (Local) | http://localhost:8080/health | — |
+| App (AWS EC2 Live) | http://100.61.154.50:8080/health | — |
 
 ### Grafana Dashboard
 
