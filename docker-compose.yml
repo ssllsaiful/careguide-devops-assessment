@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: careguide/devops-task-service:1.0.0
+    image: ssllsaiful/devops-task-service:1.0.0
     container_name: devops-task-app
     ports:
       - "8080:8080"
