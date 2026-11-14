@@ -26,7 +26,6 @@ jobs:
 
     outputs:
       short_sha: ${{ steps.slug.outputs.short_sha }}
-      image_name: ${{ steps.slug.outputs.image_name }}
 
     steps:
       - name: Checkout Source Code
@@ -39,7 +38,6 @@ jobs:
         run: |
           echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "image_name=${REGISTRY_IMAGE}" >> "$GITHUB_OUTPUT"
-
       - name: Set up QEMU (Multi-Architecture)
         uses: docker/setup-qemu-action@v3
         with:
@@ -110,7 +108,7 @@ jobs:
         if: steps.check_deploy.outputs.ssh_deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         env:
-          NEW_IMAGE: "${{ needs.build-and-push.outputs.image_name }}:sha-${{ needs.build-and-push.outputs.short_sha }}"
+          NEW_IMAGE: "ssllsaiful/devops-task-service:sha-${{ needs.build-and-push.outputs.short_sha }}"
           DH_USER: "${{ secrets.DOCKERHUB_USERNAME }}"
           DH_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"
         with:
