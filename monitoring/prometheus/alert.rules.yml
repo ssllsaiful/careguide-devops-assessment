@@ -1,0 +1,49 @@
+groups:
+  - name: devops_service_alerts
+    rules:
+      # Alert 1: App Instance Down
+      # Reasoning: A 1m window is chosen to avoid false alerts during rapid rolling updates while catching genuine crashes promptly.
+      - alert: AppInstanceDown
+        expr: up{job="devops-task-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application instance is down"
+          description: "Microservice has been unreachable for more than 1 minute."
+
+      # Alert 2: High HTTP Error Rate (> 5% of traffic)
+      # Reasoning: 5% error rate over 2m prevents noise from isolated client 4xx errors while surfacing real outages.
+      - alert: HighHttpErrorRate
+        expr: >
+          (sum(rate(http_request_errors_total[2m])) / sum(rate(http_requests_total[2m]))) * 100 > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High HTTP error rate detected"
+          description: "HTTP error rate is above 5% (current: {{ $value | printf \"%.2f\" }}%) for more than 2 minutes."
+
+      # Alert 3: Host Disk Usage Above 80%
+      # Reasoning: 80% with a 5m sustained duration allows SREs ample time to clean disk before sudden fill-up causes service halting.
+      - alert: HostDiskUsageHigh
+        expr: >
+          ((node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_free_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Host root disk usage above 80%"
+          description: "Disk usage on / is currently at {{ $value | printf \"%.2f\" }}%."
+
+      # Alert 4: Container Memory Close to Limit (> 85%)
+      # Reasoning: 85% for 2m catches runaway memory leaks before the container is terminated by the kernel OOM-killer.
+      - alert: ContainerMemoryCloseToLimit
+        expr: >
+          (container_memory_working_set_bytes{name=~"devops-task.*"} / container_spec_memory_limit_bytes{name=~"devops-task.*"}) * 100 > 85
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container memory approaching limit (> 85%)"
+          description: "Container {{ $labels.name }} memory usage is at {{ $value | printf \"%.2f\" }}% of its configured resource limit."

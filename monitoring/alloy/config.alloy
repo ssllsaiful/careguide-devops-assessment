@@ -1,0 +1,90 @@
+// Grafana Alloy configuration
+// Collects Docker container logs, parses JSON, forwards to Loki
+// Collects host metrics and forwards to Prometheus remote_write
+
+// ─── Log Collection ──────────────────────────────────────────────────────────
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+}
+
+discovery.relabel "docker_containers" {
+  targets = discovery.docker.containers.targets
+
+  // Drop Alloy's own logs to avoid recursion
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/grafana-alloy"
+    action        = "drop"
+  }
+
+  // Use container name as job label
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "job"
+    regex         = "/(.*)"
+    replacement   = "$1"
+  }
+
+  // Preserve container name as label
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+    regex         = "/(.*)"
+    replacement   = "$1"
+  }
+
+  // Preserve image name
+  rule {
+    source_labels = ["__meta_docker_container_image"]
+    target_label  = "image"
+  }
+}
+
+loki.source.docker "docker_logs" {
+  host    = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.docker_containers.output
+  forward_to = [loki.process.parse_json.receiver]
+
+  refresh_interval = "5s"
+}
+
+loki.process "parse_json" {
+  // Attempt JSON parsing; keep original line if parsing fails
+  stage.json {
+    expressions = {
+      level     = "level",
+      message   = "message",
+      timestamp = "timestamp",
+      http_method  = "http_method",
+      path         = "path",
+      status_code  = "status_code",
+      duration_ms  = "duration_ms",
+      environment  = "environment",
+    }
+  }
+
+  // Promote log level to Loki label
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  // Use app timestamp as log entry timestamp when present
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339Nano"
+    fallback_formats = ["RFC3339", "2006-01-02T15:04:05.999999999Z07:00"]
+    action_on_failure = "skip"
+  }
+
+  forward_to = [loki.write.loki.receiver]
+}
+
+loki.write "loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

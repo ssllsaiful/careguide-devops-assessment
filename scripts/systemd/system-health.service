@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Linux System Health Check
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/system_health.sh --disk 80 --cpu 90 --mem 85 --json --log-file /var/log/system_health.json
+StandardOutput=journal
+StandardError=journal

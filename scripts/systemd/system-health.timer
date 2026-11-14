@@ -1,0 +1,12 @@
+[Unit]
+Description=Run System Health Check Every 5 Minutes
+Requires=system-health.service
+
+[Timer]
+Unit=system-health.service
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
