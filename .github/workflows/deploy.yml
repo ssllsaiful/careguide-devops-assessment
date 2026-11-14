@@ -156,8 +156,12 @@ jobs:
               --name devops-task-app \
               --restart unless-stopped \
               -p 8080:8080 \
+              --log-driver=awslogs \
+              --log-opt awslogs-region=us-east-1 \
+              --log-opt awslogs-group=/careguide/staging/devops-task-service \
+              --log-opt awslogs-stream=staging-instance \
               -e PORT=8080 \
-              -e ENVIRONMENT=production \
+              -e ENVIRONMENT=staging \
               -e LOG_LEVEL=INFO \
               "${NEW_IMAGE}"
 
