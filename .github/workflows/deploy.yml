@@ -24,11 +24,19 @@ jobs:
       packages: write
       id-token: write
 
+    outputs:
+      short_sha: ${{ steps.slug.outputs.short_sha }}
+      image_name: ${{ env.REGISTRY_IMAGE }}
+
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Compute Short SHA
+        id: slug
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU (Multi-Architecture)
         uses: docker/setup-qemu-action@v3
@@ -44,7 +52,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Log in to GitHub Container Registry (Backup/Fallback)
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -59,7 +67,7 @@ jobs:
             ${{ env.REGISTRY_IMAGE }}
             ghcr.io/${{ github.repository }}
           tags: |
-            type=sha,prefix=sha-,format=short
+            type=raw,value=sha-${{ steps.slug.outputs.short_sha }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -76,10 +84,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
-      image_name: ${{ env.REGISTRY_IMAGE }}
-
   deploy-and-smoke-test:
     name: Deploy to EC2 & Smoke Test with Rollback
     runs-on: ubuntu-latest
@@ -91,64 +95,44 @@ jobs:
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
-          AWS_ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
         run: |
           if [ -n "$EC2_HOST" ] && [ -n "$EC2_SSH_KEY" ]; then
             echo "ssh_deploy_enabled=true" >> "$GITHUB_OUTPUT"
-            echo "EC2 target configured. Deployment will proceed."
+            echo "EC2 target configured — deployment will proceed."
           else
             echo "ssh_deploy_enabled=false" >> "$GITHUB_OUTPUT"
-            echo "EC2_HOST or EC2_SSH_KEY is not configured yet."
-            echo "Will automatically deploy once provisioned via Terraform in Step 3."
+            echo "EC2_HOST or EC2_SSH_KEY not configured — skipping deploy step."
           fi
-
-          if [ -n "$AWS_ROLE" ]; then
-            echo "oidc_auth_enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "oidc_auth_enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout Source Code
-        if: steps.check_deploy.outputs.ssh_deploy_enabled == 'true'
-        uses: actions/checkout@v4
-
-      # AWS OIDC Authentication (No long-lived access keys)
-      - name: Configure AWS Credentials (OIDC)
-        if: steps.check_deploy.outputs.oidc_auth_enabled == 'true'
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy Container via SSH with Automated Rollback
         if: steps.check_deploy.outputs.ssh_deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         env:
-          NEW_IMAGE: "${{ needs.build-and-push.outputs.image_name }}:${{ needs.build-and-push.outputs.image_tag }}"
+          NEW_IMAGE: "${{ needs.build-and-push.outputs.image_name }}:sha-${{ needs.build-and-push.outputs.short_sha }}"
           DH_USER: "${{ secrets.DOCKERHUB_USERNAME }}"
           DH_TOKEN: "${{ secrets.DOCKERHUB_TOKEN }}"
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER || 'ec2-user' }}
+          username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           envs: NEW_IMAGE,DH_USER,DH_TOKEN
           script: |
             set -euo pipefail
             echo "==> Deploying image: ${NEW_IMAGE}"
 
-            # Log in to Docker Hub if credentials are provided
+            # Log in to Docker Hub
             if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
               echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
             fi
 
-            # Capture existing running image tag for rollback
+            # Capture existing running image for rollback
             PREVIOUS_IMAGE=$(docker inspect --format='{{.Config.Image}}' devops-task-app 2>/dev/null || echo "")
-            echo "==> Current active image: ${PREVIOUS_IMAGE:-'None (Initial Deployment)'}"
+            echo "==> Current active image: ${PREVIOUS_IMAGE:-'None (initial deployment)'}"
 
             # Pull new image
             docker pull "${NEW_IMAGE}"
 
-            # Stop and restart container with new image
+            # Replace running container
             docker stop devops-task-app 2>/dev/null || true
             docker rm -f devops-task-app 2>/dev/null || true
 
@@ -165,40 +149,40 @@ jobs:
               -e LOG_LEVEL=INFO \
               "${NEW_IMAGE}"
 
-            echo "==> Running smoke test against http://127.0.0.1:8080/health..."
-            SMOKE_SUCCESS=0
-            for i in {1..10}; do
-              if curl -s -f http://127.0.0.1:8080/health > /dev/null; then
-                echo "==> Smoke test PASSED on attempt $i!"
-                SMOKE_SUCCESS=1
+            # Smoke test — 10 retries × 3 s
+            echo "==> Smoke test: http://127.0.0.1:8080/health"
+            SMOKE_OK=0
+            for i in $(seq 1 10); do
+              if curl -sf http://127.0.0.1:8080/health > /dev/null; then
+                echo "==> Smoke test PASSED on attempt ${i}"
+                SMOKE_OK=1
                 break
               fi
-              echo "Waiting for service to be healthy... (attempt $i/10)"
+              echo "    attempt ${i}/10 — waiting 3 s..."
               sleep 3
             done
 
-            if [ "$SMOKE_SUCCESS" -ne 1 ]; then
-              echo "==> [CRITICAL] Smoke test FAILED! Triggering automated rollback..."
+            if [ "$SMOKE_OK" -ne 1 ]; then
+              echo "==> [CRITICAL] Smoke test FAILED — rolling back"
+              docker stop devops-task-app || true
+              docker rm -f devops-task-app || true
               if [ -n "$PREVIOUS_IMAGE" ]; then
-                echo "==> Rolling back to previous image: ${PREVIOUS_IMAGE}"
-                docker stop devops-task-app || true
-                docker rm -f devops-task-app || true
                 docker run -d \
                   --name devops-task-app \
                   --restart unless-stopped \
                   -p 8080:8080 \
                   -e PORT=8080 \
-                  -e ENVIRONMENT=production \
+                  -e ENVIRONMENT=staging \
                   -e LOG_LEVEL=INFO \
                   "${PREVIOUS_IMAGE}"
-                echo "==> Rollback completed. Verifying previous container health..."
                 sleep 5
-                curl -s -f http://127.0.0.1:8080/health
-                echo "==> Rollback verified healthy."
+                curl -sf http://127.0.0.1:8080/health
+                echo "==> Rollback verified healthy"
               else
-                echo "==> No previous image available to rollback."
+                echo "==> No previous image available for rollback"
               fi
               exit 1
             fi
 
-            echo "==> Deployment and verification successfully completed!"
+            echo "==> Deployment completed successfully!"
+            docker ps --filter name=devops-task-app
