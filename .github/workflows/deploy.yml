@@ -39,10 +39,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: env.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -53,7 +50,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
 
       - name: Extract Docker Metadata (Tags & Labels)
         id: meta
@@ -88,23 +84,44 @@ jobs:
     name: Deploy to EC2 & Smoke Test with Rollback
     runs-on: ubuntu-latest
     needs: build-and-push
-    # Deployment executes when EC2 host or AWS credentials are provided
-    if: secrets.EC2_HOST != '' || secrets.AWS_ROLE_TO_ASSUME != ''
 
     steps:
+      - name: Evaluate Deployment Target Configuration
+        id: check_deploy
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          AWS_ROLE: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -n "$EC2_HOST" ] && [ -n "$EC2_SSH_KEY" ]; then
+            echo "ssh_deploy_enabled=true" >> "$GITHUB_OUTPUT"
+            echo "EC2 target configured. Deployment will proceed."
+          else
+            echo "ssh_deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            echo "EC2_HOST or EC2_SSH_KEY is not configured yet."
+            echo "Will automatically deploy once provisioned via Terraform in Step 3."
+          fi
+
+          if [ -n "$AWS_ROLE" ]; then
+            echo "oidc_auth_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "oidc_auth_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout Source Code
+        if: steps.check_deploy.outputs.ssh_deploy_enabled == 'true'
         uses: actions/checkout@v4
 
       # AWS OIDC Authentication (No long-lived access keys)
       - name: Configure AWS Credentials (OIDC)
-        if: secrets.AWS_ROLE_TO_ASSUME != ''
+        if: steps.check_deploy.outputs.oidc_auth_enabled == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Deploy Container via SSH with Automated Rollback
-        if: secrets.EC2_HOST != '' && secrets.EC2_SSH_KEY != ''
+        if: steps.check_deploy.outputs.ssh_deploy_enabled == 'true'
         uses: appleboy/ssh-action@v1.2.0
         env:
           NEW_IMAGE: "${{ env.REGISTRY_IMAGE }}:sha-${{ github.sha }}"
