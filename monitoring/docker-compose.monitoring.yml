@@ -1,11 +1,9 @@
-version: "3.9"
-
 # Full Observability Stack
 # Prometheus · Grafana · Loki · Grafana Alloy · Node Exporter · cAdvisor
 # + the application itself for end-to-end metrics/log collection
 #
 # Usage:
-#   docker compose -f docker-compose.monitoring.yml up -d
+#   docker compose -f monitoring/docker-compose.monitoring.yml up -d
 #   Grafana:    http://localhost:3000  (admin / admin)
 #   Prometheus: http://localhost:9090
 #   Loki:       http://localhost:3100
@@ -40,11 +38,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: "0.5"
 
   # ── Prometheus ─────────────────────────────────────────────────────────────
   prometheus:
@@ -123,7 +116,6 @@ services:
       - monitoring
     depends_on:
       - loki
-    # Needs access to Docker socket to read container logs
     user: root
 
   # ── Node Exporter (host metrics) ───────────────────────────────────────────
@@ -147,7 +139,7 @@ services:
 
   # ── cAdvisor (container metrics) ───────────────────────────────────────────
   cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
+    image: docker.io/zcube/cadvisor:latest
     container_name: cadvisor
     restart: unless-stopped
     ports:
